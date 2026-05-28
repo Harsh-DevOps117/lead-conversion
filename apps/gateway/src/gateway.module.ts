@@ -12,6 +12,17 @@ import { GatewayService } from './gateway.service';
     }),
     ClientsModule.register([
       {
+        name: 'AUTH_SERVICE',
+        transport: Transport.RMQ,
+        options: {
+          urls: [process.env.RMQ_URL ?? 'amqp://localhost:5672'],
+          queue: process.env.AUTH_QUEUE ?? 'AUTH_QUEUE',
+          queueOptions: {
+            durable: false,
+          },
+        },
+      },
+      {
         name: 'LEAD_SERVICE',
         transport: Transport.RMQ,
         options: {

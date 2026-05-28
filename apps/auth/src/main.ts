@@ -1,10 +1,30 @@
-import { ValidationPipe } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { AuthModule } from './auth.module';
+import { MicroserviceExceptionFilter } from './rpc-exception.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AuthModule);
-  app.useGlobalPipes(new ValidationPipe());
-  await app.listen(process.env.port ?? 3000);
+  process.title = 'auth';
+  const logger = new Logger('AUTH_SERVICE');
+  const rmqUrl = process.env.RMQ_URL ?? 'amqp://localhost:5672';
+  const queue = process.env.AUTH_QUEUE ?? 'AUTH_QUEUE';
+
+  const app = await NestFactory.createMicroservice<MicroserviceOptions>(
+    AuthModule,
+    {
+      transport: Transport.RMQ,
+      options: {
+        urls: [rmqUrl],
+        queue: queue,
+        queueOptions: {
+          durable: false,
+        },
+      },
+    },
+  );
+  app.useGlobalFilters(new MicroserviceExceptionFilter());
+  app.listen();
+  logger.log(`Auth service is running on port ${queue} and rmq url: ${rmqUrl}`);
 }
 bootstrap();

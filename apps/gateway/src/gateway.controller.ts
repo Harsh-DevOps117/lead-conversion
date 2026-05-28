@@ -1,54 +1,31 @@
-import { Controller, Get, Inject } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
-import { firstValueFrom } from 'rxjs';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+} from '@nestjs/common';
+import { LoginDto, TenantRegistrationDto } from '../../libs/dto/authDTO';
+import { GatewayService } from './gateway.service';
 
 @Controller()
 export class GatewayController {
-  constructor(
-    @Inject('LEAD_SERVICE') private readonly leadClient: ClientProxy,
-    @Inject('CALL_SERVICE') private readonly callClient: ClientProxy,
-  ) {}
+  constructor(private readonly gatewayService: GatewayService) {}
+
+  @Post('auth/signup')
+  async registerTenant(@Body() signUpDto: TenantRegistrationDto) {
+    return await this.gatewayService.registerTenant(signUpDto);
+  }
+
+  @Post('auth/login')
+  @HttpCode(HttpStatus.OK)
+  async login(@Body() loginDto: LoginDto) {
+    return await this.gatewayService.login(loginDto);
+  }
 
   @Get('health')
-  async helthCheck(): Promise<any> {
-    const ping = async (serviceName: string, client: ClientProxy) => {
-      try {
-        const result = await firstValueFrom(
-          client.send('service.ping', {
-            from: 'gateway',
-          }),
-        );
-
-        return {
-          ok: true,
-          service: serviceName,
-          result: result,
-        };
-      } catch (e: any) {
-        return {
-          ok: false,
-          service: serviceName,
-          errorr: e?.message ?? 'unknown error',
-        };
-      }
-    };
-
-    const [lead, call] = await Promise.all([
-      ping('lead', this.leadClient),
-      ping('call', this.callClient),
-    ]);
-
-    const ok = [lead, call].every((i) => i.ok);
-
-    return {
-      ok,
-      gateway: {
-        Name: 'gateway',
-        Date: new Date().toISOString(),
-        version: '1.0.0',
-      },
-      lead,
-      call,
-    };
+  async healthCheck() {
+    return await this.gatewayService.getHealthStatus();
   }
 }
