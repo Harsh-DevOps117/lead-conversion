@@ -58,6 +58,8 @@ model User{
   lastLoginAt   DateTime?
   lastLogoutAt  DateTime?
 
+  refreshToken String?
+
   @@index([phone])
   @@index([email])
 

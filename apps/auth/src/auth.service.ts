@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -15,36 +16,59 @@ import { Role } from './types/typesADMIN';
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly PEPPER = process.env.PEPPER;
+  private readonly REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
   ) {}
 
-  ping(): {
-    sucess: boolean;
-    message: string;
-    data: Date;
-    servicecName: string;
-  } {
+  ping() {
     return {
-      sucess: true,
+      success: true,
       message: 'pong',
       data: new Date(),
-      servicecName: 'call',
+      serviceName: 'auth',
     };
   }
 
+  private async generateTokens(
+    userId: number,
+    email: string,
+    role: string,
+    companyId: number,
+  ) {
+    const payload = { sub: userId.toString(), email, role, companyId };
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(payload, {
+        expiresIn: '15m',
+      }),
+      this.jwtService.signAsync(payload, {
+        secret: this.REFRESH_SECRET,
+        expiresIn: '7d',
+      }),
+    ]);
+
+    return { accessToken, refreshToken };
+  }
+
+  private async updateRefreshToken(userId: number, refreshToken: string) {
+    const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { refreshToken: hashedRefreshToken },
+    });
+  }
+
   async signUp(dto: TenantRegistrationDto) {
-    if (!this.PEPPER) {
-      this.logger.error('CRITICAL: PEPPER environment variable is missing.');
+    if (!this.PEPPER || !this.REFRESH_SECRET) {
+      this.logger.error('CRITICAL: Environment variables missing.');
       throw new InternalServerErrorException('Server configuration error.');
     }
 
     const userExist = await this.prisma.user.findFirst({
-      where: {
-        OR: [{ email: dto.email.toLowerCase() }, { phone: dto.phone }],
-      },
+      where: { OR: [{ email: dto.email.toLowerCase() }, { phone: dto.phone }] },
       select: { id: true },
     });
 
@@ -60,9 +84,7 @@ export class AuthService {
     });
 
     if (companyExist) {
-      throw new ConflictException(
-        'A company with this name already exists. Please choose another.',
-      );
+      throw new ConflictException('A company with this name already exists.');
     }
 
     const passwordHash = await bcrypt.hash(dto.password + this.PEPPER, 10);
@@ -76,32 +98,25 @@ export class AuthService {
           passwordHash,
           role: Role.ADMIN,
           company: {
-            create: {
-              name: dto.company.name,
-            },
+            create: { name: dto.company.name },
           },
-        },
-        include: {
-          company: true,
         },
       });
 
-      const payload = {
-        sub: newTenantUser.id,
-        email: newTenantUser.email,
-        role: newTenantUser.role,
-        companyId: newTenantUser.companyID,
-      };
+      const tokens = await this.generateTokens(
+        newTenantUser.id,
+        newTenantUser.email,
+        newTenantUser.role,
+        newTenantUser.companyID,
+      );
 
-      const token = await this.jwtService.signAsync(payload);
-      const { passwordHash: _, ...safeUser } = newTenantUser;
+      await this.updateRefreshToken(newTenantUser.id, tokens.refreshToken);
+
+      const { passwordHash: _, refreshToken: __, ...safeUser } = newTenantUser;
 
       return {
         success: true,
-        data: {
-          user: safeUser,
-          token,
-        },
+        data: { user: safeUser, ...tokens },
         message: 'Tenant registered successfully',
       };
     } catch (error: any) {
@@ -116,8 +131,7 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    if (!this.PEPPER) {
-      this.logger.error('CRITICAL: PEPPER environment variable is missing.');
+    if (!this.PEPPER || !this.REFRESH_SECRET) {
       throw new InternalServerErrorException('Server configuration error.');
     }
 
@@ -138,28 +152,69 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    const tokens = await this.generateTokens(
+      user.id,
+      user.email,
+      user.role,
+      user.companyID,
+    );
+
+    const hashedRefreshToken = await bcrypt.hash(tokens.refreshToken, 10);
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+      data: {
+        refreshToken: hashedRefreshToken,
+        lastLoginAt: new Date(),
+      },
     });
 
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      companyId: user.companyID,
-    };
-
-    const token = await this.jwtService.signAsync(payload);
-    const { passwordHash: _, ...safeUser } = user;
+    const { passwordHash: _, refreshToken: __, ...safeUser } = user;
 
     return {
       success: true,
-      data: {
-        user: safeUser,
-        token,
-      },
+      data: { user: safeUser, ...tokens },
       message: 'Login successful',
     };
+  }
+
+  async refreshTokens(userId: number, incomingRefreshToken: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || !user.refreshToken) {
+      throw new ForbiddenException('Access Denied');
+    }
+
+    const refreshTokenMatches = await bcrypt.compare(
+      incomingRefreshToken,
+      user.refreshToken,
+    );
+    if (!refreshTokenMatches) {
+      throw new ForbiddenException('Access Denied');
+    }
+
+    const tokens = await this.generateTokens(
+      user.id,
+      user.email,
+      user.role,
+      user.companyID,
+    );
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+
+    return {
+      success: true,
+      data: tokens,
+      message: 'Tokens refreshed successfully',
+    };
+  }
+
+  async logout(userId: number) {
+    await this.prisma.user.updateMany({
+      where: { id: userId, refreshToken: { not: null } },
+      data: { refreshToken: null, lastLogoutAt: new Date() },
+    });
+
+    return { success: true, message: 'Logged out successfully' };
   }
 }

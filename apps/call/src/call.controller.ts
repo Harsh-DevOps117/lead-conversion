@@ -1,5 +1,5 @@
 import { Controller } from '@nestjs/common';
-import { MessagePattern } from '@nestjs/microservices';
+import { MessagePattern, Payload } from '@nestjs/microservices';
 import { CallService } from './call.service';
 
 @Controller()
@@ -8,11 +8,25 @@ export class CallController {
 
   @MessagePattern('service.ping')
   ping(): {
-    sucess: boolean;
+    success: boolean;
     message: string;
     data: Date;
-    servicecName: string;
+    serviceName: string;
   } {
     return this.callService.ping();
+  }
+
+  @MessagePattern('call.trigger')
+  async triggerOutboundCall(@Payload() payload: {
+    companyId: string;
+    leadId: string;
+    campaignId: string;
+  }): Promise<any> {
+    return this.callService.triggerOutboundCall(payload);
+  }
+
+  @MessagePattern('call.sessions')
+  async getActiveSessions(): Promise<any> {
+    return this.callService.getActiveSessions();
   }
 }

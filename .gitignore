@@ -3,6 +3,11 @@
 /node_modules
 /build
 
+/db-data
+/mongo-data
+/postgres-data
+*.exe
+
 # Logs
 logs
 *.log

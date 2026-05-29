@@ -1,17 +1,17 @@
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
-import { LeadModule } from './lead.module';
+import { PaymentModule } from './payment.module';
 
 async function bootstrap() {
-  process.title = 'lead';
+  process.title = 'payment';
 
-  const queue = process.env.LEAD_QUEUE ?? 'LEAD_QUEUE';
+  const logger = new Logger('PAYMENT_SERVICE');
   const rmqUrl = process.env.RMQ_URL ?? 'amqp://localhost:5672';
+  const queue = process.env.PAYMENT_QUEUE ?? 'PAYMENT_QUEUE';
 
-  const logger = new Logger('LEAD_SERVICE');
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(
-    LeadModule,
+    PaymentModule,
     {
       transport: Transport.RMQ,
       options: {
@@ -26,8 +26,8 @@ async function bootstrap() {
     },
   );
 
-  app.listen();
-  logger.log(`Lead service is running on port ${queue} and rmq url: ${rmqUrl}`);
+  await app.listen();
+  logger.log(`Payment service is running on port ${queue} and rmq url: ${rmqUrl}`);
 }
 
 bootstrap();

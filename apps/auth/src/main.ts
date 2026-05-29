@@ -18,7 +18,9 @@ async function bootstrap() {
         urls: [rmqUrl],
         queue: queue,
         queueOptions: {
-          durable: false,
+          durable: true,
+          deadLetterExchange: 'dlx',
+          deadLetterRoutingKey: 'dlq_routing_key',
         },
       },
     },

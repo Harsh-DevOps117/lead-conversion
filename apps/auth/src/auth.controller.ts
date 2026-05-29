@@ -7,18 +7,28 @@ import { AuthService } from './auth.service';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @MessagePattern('service.ping')
-  ping() {
-    return this.authService.ping();
-  }
-
   @MessagePattern('auth.signup')
-  async registerTenant(@Payload() signUpDto: TenantRegistrationDto) {
-    return await this.authService.signUp(signUpDto);
+  registerTenant(@Payload() dto: TenantRegistrationDto) {
+    return this.authService.signUp(dto);
   }
 
   @MessagePattern('auth.login')
-  async login(@Payload() loginDto: LoginDto) {
-    return await this.authService.login(loginDto);
+  login(@Payload() dto: LoginDto) {
+    return this.authService.login(dto);
+  }
+
+  @MessagePattern('auth.refresh')
+  refreshTokens(@Payload() data: { userId: number; refreshToken: string }) {
+    return this.authService.refreshTokens(data.userId, data.refreshToken);
+  }
+
+  @MessagePattern('auth.logout')
+  logout(@Payload() data: { userId: number }) {
+    return this.authService.logout(data.userId);
+  }
+
+  @MessagePattern('service.ping')
+  ping() {
+    return { success: true, service: 'auth', timestamp: new Date() };
   }
 }
